@@ -1,0 +1,59 @@
+$Settings = Get-Content "./settings.txt" | Out-String | ConvertFrom-StringData
+
+$mydomain = $Settings.MyDomain
+$first    = $Settings.First
+$last     = $Settings.Last
+
+$domain   = $Settings.Domain
+
+$EfTyPko   = [bool]$Settings.EfTyPko
+$ftpName   = $Settings.FtpName
+$ftpPass   = $Settings.FtpPass
+$ftpServer = $Settings.FtpServer
+
+################################################################################
+# Don't edit pls and thanks ####################################################
+################################################################################
+
+# Remove unnecessary folders
+if ( Test-Path "./$domain" ) {
+	Remove-Item "./$domain" -Recurse
+}
+if ( Test-Path "./$mydomain" ) {
+	Remove-Item "./$mydomain" -Recurse
+}
+
+# Crawl Bedna's web
+./bin/wget --recursive --no-clobber --page-requisites --html-extension --convert-links --domains "$domain" --no-parent "$domain"
+
+# Go into the folder
+cd "./$domain"
+
+# Rename every *.php.html to *.php
+ls *.html | rename-item -newname { $_.basename }
+rm index
+
+# Replace all the Benda-only stuff
+Get-ChildItem "./" -Filter *.php | Foreach-Object {
+	$content = Get-Content $_.FullName -Encoding utf8
+	$content = $content -ireplace [regex]::Escape("$domain"), "$mydomain"
+	$content = $content -ireplace [regex]::Escape("martin"), "$first"
+	$content = $content -ireplace [regex]::Escape("benda"), "$last"
+	$content = $content -ireplace [regex]::Escape(".php.html"), ".php"
+	$content = $content -ireplace [regex]::Escape("index.html"), "index.php"
+	$content = $content | Select-String -Pattern "https://www.endora.cz/images/icon.png" -notmatch
+	$content | Out-File $_.FullName -Force -Encoding utf8
+}
+
+# Rename the folder from $domain to $mydomain
+cd ..
+mv "./$domain" "./$mydomain"
+
+# Replace foto2 with some random picture from qts :-)
+$file=Get-ChildItem -Path "./bin/qts" | Get-Random -count 1
+cp "./bin/qts/$file" "$mydomain/foto/foto2.jpg"
+
+# Transfer the files to endora if we want to
+if ( $EfTyPko ) { cd "./$mydomain" }
+if ( $EfTyPko ) { Get-ChildItem "./" -Recurse | Foreach-Object { $relFile = $_ | Resolve-Path -Relative; $relFile = $relFile -replace [regex]::Escape("./"), ""; $relFile = $relFile -replace [regex]::Escape("/"), "/"; $localFile = $_.FullName; $ftpFile = "$mydomain/web/$relFile"; $ftp="ftp://$ftpServer/$ftpFile"; $request = [System.Net.WebRequest]::Create($ftp); $request.Credentials = New-Object System.Net.NetworkCredential("$ftpName","$ftpPass"); $request.UseBinary = $true; if ( Test-Path -Path "$localFile" -PathType Leaf ) { $request.Method = [System.Net.WebRequestMethods+Ftp]::UploadFile; $fileStream = [System.IO.File]::OpenRead("$localFile"); $ftpStream  = $request.GetRequestStream(); $fileStream.CopyTo($ftpStream); $ftpStream.Dispose(); $fileStream.Dispose(); } elseif ( Test-Path -Path "$localFile" -PathType Container ) { $request.Method = [System.Net.WebRequestMethods+Ftp]::MakeDirectory; } $response = $request.GetResponse(); }}
+if ( $EfTyPko ) { cd .. }
